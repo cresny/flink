@@ -24,6 +24,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URI;
 
 /**
@@ -46,12 +47,13 @@ public class HDFSCopyFromLocal {
 
 					FileSystem fs = FileSystem.get(remotePath, hadoopConf);
 
-					fs.copyFromLocalFile(new Path(localPath.getAbsolutePath()),
-							new Path(remotePath));
+					copyFromLocalFile(fs, localPath, checkInitialDirectory(fs,localPath,remotePath));
+
 				} catch (Exception t) {
 					asyncException.f0 = t;
 				}
 			}
+
 		};
 
 		copyThread.setDaemon(true);
@@ -62,4 +64,34 @@ public class HDFSCopyFromLocal {
 			throw asyncException.f0;
 		}
 	}
+
+	/**
+	 * Ensure that target path terminates with a new directory to be created by fs. If remoteURI does not specify a new
+	 * directory, append local directory name.
+	 * @param fs
+	 * @param localPath
+	 * @param remoteURI
+	 * @return
+	 * @throws IOException
+	 */
+	protected static URI checkInitialDirectory(final FileSystem fs,final File localPath, final URI remoteURI) throws IOException {
+		if (localPath.isDirectory()) {
+			Path remotePath = new Path(remoteURI);
+			if (fs.exists(remotePath)) {
+				return new Path(remotePath,localPath.getName()).toUri();
+			}
+		}
+		return remoteURI;
+	}
+
+	protected static void copyFromLocalFile(final FileSystem fs, final File localPath, final URI remotePath) throws Exception {
+		if (localPath.isDirectory()) {
+			for (File file : localPath.listFiles()) {
+				copyFromLocalFile(fs, file, new Path(new Path(remotePath),file.getName()).toUri());
+			}
+		} else {
+			fs.copyFromLocalFile(new Path(localPath.getAbsolutePath()),new Path(remotePath));
+		}
+	}
+
 }
