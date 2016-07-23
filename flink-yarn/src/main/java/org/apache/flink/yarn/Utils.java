@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *	 http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,21 +18,8 @@
 
 package org.apache.flink.yarn;
 
-import java.io.File;
-import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.nio.ByteBuffer;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.apache.flink.runtime.clusterframework.BootstrapTools;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.flink.configuration.ConfigConstants;
-
+import org.apache.flink.runtime.clusterframework.BootstrapTools;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -52,6 +39,19 @@ import org.apache.hadoop.yarn.api.records.LocalResourceType;
 import org.apache.hadoop.yarn.api.records.LocalResourceVisibility;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.util.ConverterUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Utility class that provides helper methods to work with Apache Hadoop YARN.
@@ -125,11 +125,13 @@ public final class Utils {
 
 		Path dst = new Path(homedir, suffix);
 
+		localRsrcPath = checkScheme(localRsrcPath);
 		LOG.info("Copying from " + localRsrcPath + " to " + dst);
-		fs.copyFromLocalFile(localRsrcPath, dst);
+		copyFromLocalFile(fs, localRsrcPath, dst);
 		registerLocalResource(fs, dst, appMasterJar);
 		return dst;
 	}
+
 
 	public static void registerLocalResource(FileSystem fs, Path remoteRsrcPath, LocalResource localResource) throws IOException {
 		FileStatus jarStat = fs.getFileStatus(remoteRsrcPath);
@@ -254,5 +256,34 @@ public final class Utils {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * Recursive directory copy to work around FileSystem implementations that do not implement it.
+	 * @param fs
+	 * @param localPath
+	 * @param remotePath
+	 * @throws IOException
+     */
+	protected static void copyFromLocalFile(final FileSystem fs, final Path localPath, final Path remotePath) throws IOException {
+		File localFile = new File(localPath.toUri());
+		if (localFile.isDirectory()) {
+			for (File file : localFile.listFiles()) {
+				copyFromLocalFile(fs, new Path("file://" + file.getAbsolutePath()), new Path(remotePath,file.getName()));
+			}
+		} else {
+			fs.copyFromLocalFile(localPath,remotePath);
+		}
+	}
+
+	public static Path checkScheme(final Path localRsrcPath) throws IOException {
+		if (localRsrcPath.isAbsoluteAndSchemeAuthorityNull()) {
+			try {
+				return new Path(new URI("file://" + localRsrcPath.toString()));
+			} catch (URISyntaxException e) {
+				throw new IOException(e);
+			}
+		}
+		return localRsrcPath;
 	}
 }
